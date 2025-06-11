@@ -1,21 +1,21 @@
 name: Release ffmpeg-rockchip Build ALL Platforms
 
 # 发布构建配置
-# 项目源码地址: https://github.com/ChungTak/rkmpp
+# 项目源码地址: https://github.com/ChungTak/ffmpeg-cross-builder
 # 基础分支: master
 on:
   workflow_dispatch:
     inputs:
-      version_tag:
-        description: 'Release version tag (will auto-fetch from rockchip-linux/mpp if not specified)'
-        required: false
-        default: ''
-        type: string
       build_targets:
         description: 'Build targets (comma-separated, or "all" for all targets)'
         required: false
         default: 'all'
         type: string
+      ffmpeg_options:
+        description: 'FFMPEG_OPTIONS:[rk_only,complete]'
+        required: false
+        default: 'rk_only'
+        type: string        
       enable_debug:
         description: 'Enable debug build'
         required: false
@@ -37,44 +37,61 @@ jobs:
       release_notes: ${{ steps.fetch-latest-release.outputs.release_notes }}
       release_name: ${{ steps.fetch-latest-release.outputs.release_name }}
     steps:
-      - name: Fetch latest release from rockchip-linux/mpp
+      - name: Fetch latest release versions
         id: fetch-latest-release
         run: |
-          echo "Fetching latest release from https://github.com/rockchip-linux/mpp/releases"
+          echo "Fetching ffmpeg version from https://raw.githubusercontent.com/nyanmisaka/ffmpeg-rockchip/refs/heads/master/RELEASE"
           
-          # 获取最新release信息
-          LATEST_RELEASE=$(curl -s https://api.github.com/repos/rockchip-linux/mpp/releases/latest)
+          # 获取ffmpeg版本
+          FFMPEG_VERSION=$(curl -s https://raw.githubusercontent.com/nyanmisaka/ffmpeg-rockchip/refs/heads/master/RELEASE)
           
-          if [ $? -ne 0 ]; then
-            echo "::error::Failed to fetch latest release information"
+          if [ $? -ne 0 ] || [ -z "$FFMPEG_VERSION" ]; then
+            echo "::error::Failed to fetch ffmpeg version"
             exit 1
           fi
           
-          # 提取版本标签
-          VERSION_TAG=$(echo "$LATEST_RELEASE" | jq -r '.tag_name')
-          if [ "$VERSION_TAG" = "null" ] || [ -z "$VERSION_TAG" ]; then
-            echo "::warning::Could not extract version tag, using input or default"
-            VERSION_TAG="${{ github.event.inputs.version_tag || 'v1.0.0' }}"
+          # 清理版本号（去掉可能的空格和换行符）
+          FFMPEG_VERSION=$(echo "$FFMPEG_VERSION" | tr -d '\n\r\t ' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+          
+          echo "Fetching rkmpp version from https://github.com/ChungTak/rkmpp-cross-builder/releases/latest"
+          
+          # 获取rkmpp最新release信息
+          RKMPP_RELEASE=$(curl -s https://api.github.com/repos/ChungTak/rkmpp-cross-builder/releases/latest)
+          
+          if [ $? -ne 0 ]; then
+            echo "::error::Failed to fetch rkmpp latest release information"
+            exit 1
           fi
           
-          # 提取release名称
-          RELEASE_NAME=$(echo "$LATEST_RELEASE" | jq -r '.name')
-          if [ "$RELEASE_NAME" = "null" ] || [ -z "$RELEASE_NAME" ]; then
-            RELEASE_NAME="Rockchip MPP $VERSION_TAG"
+          # 提取rkmpp版本标签
+          RKMPP_VERSION=$(echo "$RKMPP_RELEASE" | jq -r '.tag_name')
+          if [ "$RKMPP_VERSION" = "null" ] || [ -z "$RKMPP_VERSION" ]; then
+            echo "::warning::Could not extract rkmpp version tag, using default"
+            RKMPP_VERSION="v1.0.0"
           fi
           
-          # 提取release notes
-          RELEASE_NOTES=$(echo "$LATEST_RELEASE" | jq -r '.body')
+          # 构建版本标签: ffmpeg_version + ffmpeg_options + rkmpp_version
+          FFMPEG_OPTIONS="${{ github.event.inputs.ffmpeg_options }}"
+          VERSION_TAG="${FFMPEG_VERSION}-${FFMPEG_OPTIONS}-${RKMPP_VERSION}"
+          
+          # 构建release名称
+          RELEASE_NAME="FFmpeg Rockchip ${VERSION_TAG}"
+          
+          # 提取rkmpp release notes
+          RELEASE_NOTES=$(echo "$RKMPP_RELEASE" | jq -r '.body')
           if [ "$RELEASE_NOTES" = "null" ] || [ -z "$RELEASE_NOTES" ]; then
-            RELEASE_NOTES="Release $VERSION_TAG"
+            RELEASE_NOTES="FFmpeg Rockchip build with MPP support"
           fi
           
           # 使用当前日期
           BUILD_DATE=$(date +'%Y-%m-%d')
           
-          echo "Found latest release:"
-          echo "- Version: $VERSION_TAG"
-          echo "- Name: $RELEASE_NAME"
+          echo "Version information:"
+          echo "- FFmpeg Version: $FFMPEG_VERSION"
+          echo "- FFmpeg Options: $FFMPEG_OPTIONS"
+          echo "- RKMPP Version: $RKMPP_VERSION"
+          echo "- Combined Version Tag: $VERSION_TAG"
+          echo "- Release Name: $RELEASE_NAME"
           echo "- Build Date: $BUILD_DATE"
           echo "- Notes length: ${#RELEASE_NOTES} characters"
           
@@ -93,7 +110,7 @@ jobs:
         id: set-matrix
         run: |
           if [ "${{ github.event.inputs.build_targets }}" = "all" ]; then
-            # rkmpp not support windows and macos
+            # ffmpeg-rockchip not support windows and macos
             # 使用jq构建JSON确保格式正确，输出为压缩格式
             matrix=$(jq -nc '[
               {"group": "linux", "target": "x86_64-linux-gnu", "os": "ubuntu-22.04"},
@@ -313,7 +330,7 @@ jobs:
       # Build Step
       - name: Build Rockchip MPP for ${{ matrix.target }}
         run: |
-          export OUTPUT_DIR="rkmpp_install/Release/${{ matrix.target }}"
+          export OUTPUT_DIR="ffmpeg_rockchip_install/Release/${{ matrix.target }}"
           
           echo "Building Rockchip MPP for target: ${{ matrix.target }}"
           echo "Build type: ${{ env.BUILD_TYPE }}"
@@ -348,8 +365,8 @@ jobs:
           echo "Checking build results..."
           if [ ! -d "$OUTPUT_DIR" ]; then
             echo "::error::Build failed - output directory $OUTPUT_DIR not found!"
-            echo "Available directories in rkmpp_install/Release/:"
-            ls -la rkmpp_install/Release/ || echo "rkmpp_install/Release/ not found"
+            echo "Available directories in ffmpeg_rockchip_install/Release/:"
+            ls -la ffmpeg_rockchip_install/Release/ || echo "ffmpeg_rockchip_install/Release/ not found"
             exit 1
           fi
           
@@ -362,7 +379,7 @@ jobs:
           ./.github/scripts/validate_build.sh "${{ matrix.target }}" "$OUTPUT_DIR"
 
           # Packaging
-          RELEASE_NAME="rkmpp-${{ needs.prepare.outputs.version_tag }}-${{ matrix.target }}"
+          RELEASE_NAME="ffmpeg-rockchip-${{ needs.prepare.outputs.version_tag }}-${{ matrix.target }}"
           mkdir -p release/artifacts
           
           # Copy installation directory
@@ -416,7 +433,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: release-artifact-${{ matrix.target }}
-          path: release/artifacts/rkmpp-${{ needs.prepare.outputs.version_tag }}-${{ matrix.target }}.tar.gz
+          path: release/artifacts/ffmpeg-rockchip-${{ needs.prepare.outputs.version_tag }}-${{ matrix.target }}.tar.gz
           overwrite: true
           include-hidden-files: false
           retention-days: 7
