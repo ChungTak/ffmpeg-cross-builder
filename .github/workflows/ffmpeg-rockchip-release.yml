@@ -1,0 +1,486 @@
+name: Release ffmpeg-rockchip Build ALL Platforms
+
+# 发布构建配置
+# 项目源码地址: https://github.com/ChungTak/rkmpp
+# 基础分支: master
+on:
+  workflow_dispatch:
+    inputs:
+      version_tag:
+        description: 'Release version tag (will auto-fetch from rockchip-linux/mpp if not specified)'
+        required: false
+        default: ''
+        type: string
+      build_targets:
+        description: 'Build targets (comma-separated, or "all" for all targets)'
+        required: false
+        default: 'all'
+        type: string
+      enable_debug:
+        description: 'Enable debug build'
+        required: false
+        default: false
+        type: boolean
+      optimize_size:
+        description: 'Enable size optimization for libraries'
+        required: false
+        default: true
+        type: boolean
+
+jobs:
+  prepare:
+    runs-on: ubuntu-22.04
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+      version_tag: ${{ steps.fetch-latest-release.outputs.version_tag }}
+      build_date: ${{ steps.fetch-latest-release.outputs.build_date }}
+      release_notes: ${{ steps.fetch-latest-release.outputs.release_notes }}
+      release_name: ${{ steps.fetch-latest-release.outputs.release_name }}
+    steps:
+      - name: Fetch latest release from rockchip-linux/mpp
+        id: fetch-latest-release
+        run: |
+          echo "Fetching latest release from https://github.com/rockchip-linux/mpp/releases"
+          
+          # 获取最新release信息
+          LATEST_RELEASE=$(curl -s https://api.github.com/repos/rockchip-linux/mpp/releases/latest)
+          
+          if [ $? -ne 0 ]; then
+            echo "::error::Failed to fetch latest release information"
+            exit 1
+          fi
+          
+          # 提取版本标签
+          VERSION_TAG=$(echo "$LATEST_RELEASE" | jq -r '.tag_name')
+          if [ "$VERSION_TAG" = "null" ] || [ -z "$VERSION_TAG" ]; then
+            echo "::warning::Could not extract version tag, using input or default"
+            VERSION_TAG="${{ github.event.inputs.version_tag || 'v1.0.0' }}"
+          fi
+          
+          # 提取release名称
+          RELEASE_NAME=$(echo "$LATEST_RELEASE" | jq -r '.name')
+          if [ "$RELEASE_NAME" = "null" ] || [ -z "$RELEASE_NAME" ]; then
+            RELEASE_NAME="Rockchip MPP $VERSION_TAG"
+          fi
+          
+          # 提取release notes
+          RELEASE_NOTES=$(echo "$LATEST_RELEASE" | jq -r '.body')
+          if [ "$RELEASE_NOTES" = "null" ] || [ -z "$RELEASE_NOTES" ]; then
+            RELEASE_NOTES="Release $VERSION_TAG"
+          fi
+          
+          # 使用当前日期
+          BUILD_DATE=$(date +'%Y-%m-%d')
+          
+          echo "Found latest release:"
+          echo "- Version: $VERSION_TAG"
+          echo "- Name: $RELEASE_NAME"
+          echo "- Build Date: $BUILD_DATE"
+          echo "- Notes length: ${#RELEASE_NOTES} characters"
+          
+          # 输出到GitHub Actions
+          echo "version_tag=$VERSION_TAG" >> $GITHUB_OUTPUT
+          echo "build_date=$BUILD_DATE" >> $GITHUB_OUTPUT
+          echo "release_name=$RELEASE_NAME" >> $GITHUB_OUTPUT
+          
+          # 处理多行release notes
+          EOF=$(dd if=/dev/urandom bs=15 count=1 status=none | base64)
+          echo "release_notes<<$EOF" >> $GITHUB_OUTPUT
+          echo "$RELEASE_NOTES" >> $GITHUB_OUTPUT
+          echo "$EOF" >> $GITHUB_OUTPUT
+
+      - name: Set build matrix
+        id: set-matrix
+        run: |
+          if [ "${{ github.event.inputs.build_targets }}" = "all" ]; then
+            # rkmpp not support windows and macos
+            # 使用jq构建JSON确保格式正确，输出为压缩格式
+            matrix=$(jq -nc '[
+              {"group": "linux", "target": "x86_64-linux-gnu", "os": "ubuntu-22.04"},
+              {"group": "linux", "target": "aarch64-linux-gnu", "os": "ubuntu-22.04"},
+              {"group": "linux", "target": "arm-linux-gnueabihf", "os": "ubuntu-22.04"},
+              {"group": "riscv", "target": "riscv64-linux-gnu", "os": "ubuntu-22.04"},
+              {"group": "loongarch", "target": "loongarch64-linux-gnu", "os": "ubuntu-22.04"},
+              {"group": "android", "target": "aarch64-linux-android", "os": "ubuntu-22.04"},
+              {"group": "android", "target": "arm-linux-android", "os": "ubuntu-22.04"},
+              {"group": "android", "target": "x86_64-linux-android", "os": "ubuntu-22.04"},
+              {"group": "harmonyos", "target": "aarch64-linux-harmonyos", "os": "ubuntu-22.04"},
+              {"group": "harmonyos", "target": "arm-linux-harmonyos", "os": "ubuntu-22.04"},
+              {"group": "harmonyos", "target": "x86_64-linux-harmonyos", "os": "ubuntu-22.04"}
+            ]')
+            echo "Generated matrix: $matrix"
+          else
+            # 解析用户指定的目标
+            IFS=',' read -ra TARGETS <<< "${{ github.event.inputs.build_targets }}"
+            matrix='['
+            first=true
+            for target in "${TARGETS[@]}"; do
+              target=$(echo "$target" | xargs) # 去掉空格
+              if [ "$first" = true ]; then
+                first=false
+              else
+                matrix="${matrix},"
+              fi
+              
+              # 根据目标确定操作系统和组
+              case "$target" in
+                *-windows-*)
+                  os="windows-2022"
+                  group="windows"
+                  ;;
+                *-macos*)
+                  os="macos-13"
+                  group="macos"
+                  ;;
+                *-android*)
+                  os="ubuntu-22.04"
+                  group="android"
+                  ;;
+                *-harmonyos*)
+                  os="ubuntu-22.04"
+                  group="harmonyos"
+                  ;;
+                riscv64-*)
+                  os="ubuntu-22.04"
+                  group="riscv"
+                  ;;
+                loongarch64-*)
+                  os="ubuntu-22.04"
+                  group="loongarch"
+                  ;;
+                *)
+                  os="ubuntu-22.04"
+                  group="linux"
+                  ;;
+              esac
+              
+              matrix="${matrix}{\"group\": \"$group\", \"target\": \"$target\", \"os\": \"$os\"}"
+            done
+            matrix="${matrix}]"
+          fi
+          echo "matrix=$matrix" >> $GITHUB_OUTPUT
+
+  build:
+    runs-on: ${{ matrix.os }}
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.prepare.outputs.matrix) }}
+    permissions:
+      contents: write
+    env:
+      BUILD_TYPE: ${{ github.event.inputs.enable_debug == 'true' && 'Debug' || 'Release' }}
+      VERSION_TAG: ${{ needs.prepare.outputs.version_tag }}
+      BUILD_DATE: ${{ needs.prepare.outputs.build_date }}
+      RELEASE_NAME: ${{ needs.prepare.outputs.release_name }}
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          ref: master
+          fetch-depth: 0
+
+      # Setup Android NDK for Android targets
+      - name: Setup Android NDK
+        if: matrix.group == 'android'
+        uses: nttld/setup-ndk@v1
+        id: setup-ndk
+        with:
+          ndk-version: r21e
+          local-cache: true
+          add-to-path: true
+
+      - name: Set Android NDK environment
+        if: matrix.group == 'android'
+        run: |
+          echo "ANDROID_NDK_HOME=${{ steps.setup-ndk.outputs.ndk-path }}" >> $GITHUB_ENV
+
+      # Setup HarmonyOS SDK
+      - name: Install build dependencies (HarmonyOS)
+        if: matrix.group == 'harmonyos'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y build-essential cmake unzip curl
+        
+      - name: Setup HarmonyOS SDK
+        if: matrix.group == 'harmonyos'
+        shell: bash
+        run: |
+          echo "Downloading HarmonyOS SDK split archives..."
+          curl -L -o ohos-sdk-windows_linux-public.tar.gz.aa https://github.com/openharmony-rs/ohos-sdk/releases/download/v4.1/ohos-sdk-windows_linux-public.tar.gz.aa
+          curl -L -o ohos-sdk-windows_linux-public.tar.gz.ab https://github.com/openharmony-rs/ohos-sdk/releases/download/v4.1/ohos-sdk-windows_linux-public.tar.gz.ab
+          echo "Combining split archives..."
+          cat ohos-sdk-windows_linux-public.tar.gz.aa ohos-sdk-windows_linux-public.tar.gz.ab > ohos-sdk-windows_linux-public.tar.gz
+          echo "Extracting HarmonyOS SDK..."
+          tar -xzf ohos-sdk-windows_linux-public.tar.gz
+          cd ohos-sdk/linux
+          unzip -q native-linux-x64-*-Release.zip
+          cd ../..
+          export HARMONYOS_SDK_HOME=$(find $(pwd)/ohos-sdk/linux -type d -name native | head -n 1)
+          echo "HARMONYOS_SDK_HOME=$HARMONYOS_SDK_HOME" >> $GITHUB_ENV
+          if [ ! -f "$HARMONYOS_SDK_HOME/build/cmake/ohos.toolchain.cmake" ]; then
+            echo "::error::HarmonyOS toolchain file not found at $HARMONYOS_SDK_HOME/build/cmake/ohos.toolchain.cmake"
+            exit 1
+          fi
+          echo "HarmonyOS SDK setup complete."
+
+      # Linux Dependencies
+      - name: Install Linux Dependencies
+        if: runner.os == 'Linux' && (matrix.group == 'linux' || matrix.group == 'riscv' || matrix.group == 'loongarch')
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            cmake \
+            make \
+            unzip \
+            curl \
+            gcc-riscv64-linux-gnu \
+            libc6-dev-riscv64-cross
+
+      # Additional LoongArch64 setup
+      - name: Install LoongArch64 Dependencies
+        if: matrix.target == 'loongarch64-linux-gnu'
+        run: |
+          echo "Setting up LoongArch64 environment"
+          # Add specific LoongArch64 dependencies if needed
+
+      # Windows Setup
+      - name: Setup MSVC 2022
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          toolchain: vs2022
+
+      - name: Setup Git Bash for Windows
+        if: runner.os == 'Windows'
+        run: |
+          choco install git -y
+          echo "C:\Program Files\Git\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          echo "C:\Program Files\Git\usr\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Install CMake (Windows)
+        if: runner.os == 'Windows'
+        run: choco install cmake --installargs 'ADD_CMAKE_TO_PATH=System' -y
+
+      # macOS Setup
+      - name: Install CMake (macOS)
+        if: runner.os == 'macOS'
+        run: brew install cmake curl unzip
+
+      # Setup Zig
+      - name: Setup Zig
+        uses: korandoru/setup-zig@v1
+        with:
+          zig-version: 0.14.0
+
+      # Get commit info
+      - name: Set commit info
+        id: commit-info
+        run: |
+          COMMIT_HASH=$(git rev-parse --short HEAD)
+          COMMIT_DATE=$(git log -1 --format=%cs)
+          echo "commit_hash=$COMMIT_HASH" >> $GITHUB_OUTPUT
+          echo "commit_date=$COMMIT_DATE" >> $GITHUB_OUTPUT
+          echo "DEBUG: Current environment variables:"
+          echo "VERSION_TAG=${{ env.VERSION_TAG }}"
+          echo "BUILD_TYPE=${{ env.BUILD_TYPE }}"
+          echo "BUILD_DATE=${{ env.BUILD_DATE }}"
+          echo "COMMIT_HASH=$COMMIT_HASH"
+          echo "COMMIT_DATE=$COMMIT_DATE"
+        shell: bash
+
+      # Store environment variables for release
+      - name: Create environment variables file
+        run: |
+          echo "VERSION_TAG=${{ env.VERSION_TAG }}" > build_env.txt
+          echo "BUILD_TYPE=${{ env.BUILD_TYPE }}" >> build_env.txt
+          echo "BUILD_DATE=${{ env.BUILD_DATE }}" >> build_env.txt
+          echo "COMMIT_HASH=${{ steps.commit-info.outputs.commit_hash }}" >> build_env.txt
+          echo "COMMIT_DATE=${{ steps.commit-info.outputs.commit_date }}" >> build_env.txt
+        shell: bash
+
+      - name: Upload environment variables
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-environment-${{ matrix.target }}
+          path: build_env.txt
+          overwrite: true
+          include-hidden-files: false
+          retention-days: 1
+
+      # Build Step
+      - name: Build Rockchip MPP for ${{ matrix.target }}
+        run: |
+          export OUTPUT_DIR="rkmpp_install/Release/${{ matrix.target }}"
+          
+          echo "Building Rockchip MPP for target: ${{ matrix.target }}"
+          echo "Build type: ${{ env.BUILD_TYPE }}"
+          echo "Current directory: $(pwd)"
+          
+          # Make build script executable
+          chmod +x build_with_zig.sh
+          
+          # Configure environment based on target
+          case "${{ matrix.target }}" in
+            *-android*)
+              export ANDROID_NDK_HOME="${{ steps.setup-ndk.outputs.ndk-path }}"
+              echo "Using Android NDK: $ANDROID_NDK_HOME"
+              ;;
+            *-harmonyos*)
+              echo "Using HarmonyOS SDK: $HARMONYOS_SDK_HOME"
+              ;;
+          esac
+          
+          # Run the build
+          echo "Starting build..."
+          OPTIMIZE_FLAG=""
+          if [ "${{ github.event.inputs.optimize_size }}" = "true" ]; then
+            OPTIMIZE_FLAG="--optimize-size"
+            echo "Size optimization enabled"
+          else
+            echo "Size optimization disabled"
+          fi
+          ./build_with_zig.sh --target=${{ matrix.target }} $OPTIMIZE_FLAG
+          
+          # Verify build output
+          echo "Checking build results..."
+          if [ ! -d "$OUTPUT_DIR" ]; then
+            echo "::error::Build failed - output directory $OUTPUT_DIR not found!"
+            echo "Available directories in rkmpp_install/Release/:"
+            ls -la rkmpp_install/Release/ || echo "rkmpp_install/Release/ not found"
+            exit 1
+          fi
+          
+          echo "Build successful. Contents of $OUTPUT_DIR:"
+          ls -la "$OUTPUT_DIR"
+          
+          # Validate build output
+          echo "Validating build output..."
+          chmod +x .github/scripts/validate_build.sh
+          ./.github/scripts/validate_build.sh "${{ matrix.target }}" "$OUTPUT_DIR"
+
+          # Packaging
+          RELEASE_NAME="rkmpp-${{ needs.prepare.outputs.version_tag }}-${{ matrix.target }}"
+          mkdir -p release/artifacts
+          
+          # Copy installation directory
+          echo "Copying build output to release artifacts..."
+          cp -r "$OUTPUT_DIR" "release/artifacts/$RELEASE_NAME"
+          
+          # Add metadata
+          cat > "release/artifacts/$RELEASE_NAME/BUILD_INFO.txt" << EOF
+          Rockchip MPP Build Information
+          =============================
+          Version: ${{ needs.prepare.outputs.version_tag }}
+          Target: ${{ matrix.target }}
+          Build Type: ${{ env.BUILD_TYPE }}
+          Build Date: ${{ env.BUILD_DATE }}
+          Commit: ${{ steps.commit-info.outputs.commit_hash }}
+          Commit Date: ${{ steps.commit-info.outputs.commit_date }}
+          Source: https://github.com/nyanmisaka/mpp.git
+          Branch: jellyfin-mpp
+          
+          Build Environment:
+          - OS: ${{ runner.os }}
+          - Runner: ${{ matrix.os }}
+          - Zig Version: 0.14.0
+          
+          Package Contents:
+          - include/: Header files
+          - lib/: Library files (static and shared)
+          - pkgconfig/: pkg-config files
+          EOF
+          
+          # Create checksums
+          echo "Generating checksums..."
+          cd "release/artifacts/$RELEASE_NAME"
+          find . -type f -name "*.so*" -o -name "*.a" -o -name "*.dll" -o -name "*.dylib" | xargs sha256sum > CHECKSUMS.txt 2>/dev/null || true
+          cd ../../..
+          
+          echo "Creating archive release/artifacts/$RELEASE_NAME.tar.gz"
+          tar -czvf "release/artifacts/$RELEASE_NAME.tar.gz" -C "release/artifacts" "$RELEASE_NAME"
+          
+          # Verify archive
+          if [ -f "release/artifacts/$RELEASE_NAME.tar.gz" ]; then
+            echo "Archive created successfully."
+            echo "Archive size: $(du -h release/artifacts/$RELEASE_NAME.tar.gz | cut -f1)"
+          else
+            echo "::error::Failed to create archive!"
+            exit 1
+          fi
+        shell: bash
+
+      - name: Upload Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-artifact-${{ matrix.target }}
+          path: release/artifacts/rkmpp-${{ needs.prepare.outputs.version_tag }}-${{ matrix.target }}.tar.gz
+          overwrite: true
+          include-hidden-files: false
+          retention-days: 7
+
+  release:
+    runs-on: ubuntu-22.04
+    needs: [prepare, build]
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout Repository (for release context)
+        uses: actions/checkout@v4
+        with:
+          ref: master
+          fetch-depth: 0
+
+      - name: Download build environment variables
+        uses: actions/download-artifact@v4
+        with:
+          name: build-environment-x86_64-linux-gnu
+          path: ./
+
+      - name: Load environment variables
+        run: |
+          if [ -f "build_env.txt" ]; then
+            echo "Loading environment variables from build_env.txt"
+            cat build_env.txt >> $GITHUB_ENV
+            cat build_env.txt # Debugging output
+          else
+            echo "::error::build_env.txt not found!"
+            exit 1
+          fi
+        shell: bash
+
+      - name: Download All Build Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+          pattern: release-artifact-*
+          merge-multiple: true
+
+      - name: List downloaded artifacts
+        run: |
+          echo "Downloaded artifacts:"
+          ls -la release-artifacts/
+          echo "Total size:"
+          du -sh release-artifacts/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ needs.prepare.outputs.version_tag }}
+          name: ${{ needs.prepare.outputs.release_name }}
+          body: ${{ needs.prepare.outputs.release_notes }}
+          draft: false
+          prerelease: false
+          make_latest: true
+          files: |
+            release-artifacts/*.tar.gz
+
+      - name: Cleanup artifacts
+        run: |
+          echo "Release created successfully!"
+          echo "Artifacts uploaded:"
+          ls -la release-artifacts/
