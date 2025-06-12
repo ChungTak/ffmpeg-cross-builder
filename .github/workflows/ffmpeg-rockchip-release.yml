@@ -445,7 +445,7 @@ jobs:
       - name: Download build environment variables
         uses: actions/download-artifact@v4
         with:
-          name: build-environment-x86_64-linux-gnu
+          name: build-environment-aarch64-linux-gnu
           path: ./
 
       - name: Load environment variables
