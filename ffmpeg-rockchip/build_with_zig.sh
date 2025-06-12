@@ -29,6 +29,10 @@ for arg in "$@"; do
       FFMPEG_OPTIONS="${arg#*=}"
       shift
       ;;
+    --ffmpeg-branch)
+      FFMPEG_BRANCH="master"
+      shift
+      ;;      
     clean)
       ACTION="clean"
       shift
@@ -140,6 +144,7 @@ esac
 # 函数：下载并解压 ffmpeg 源码
 download_ffmpeg() {
     local source_dir="$1"
+    local branch="$2"
     local download_url="https://github.com/nyanmisaka/ffmpeg-rockchip.git"
     
     echo -e "${YELLOW}检查 ffmpeg 源码目录...${NC}"
@@ -164,7 +169,7 @@ download_ffmpeg() {
     echo -e "${BLUE}下载到: $source_dir${NC}"
     
     # 下载文件
-    git clone --depth=1 $download_url $source_dir
+    git clone -b $branch --depth=1 $download_url $source_dir
     if [ $? -ne 0 ]; then
         echo -e "${RED}下载失败: $download_url${NC}"
         rm -rf "$archive_path"
@@ -182,7 +187,7 @@ download_ffmpeg() {
 }
 
 # 下载并准备 ffmpeg 源码
-download_ffmpeg "$FFMPEG_SOURCE_DIR"
+download_ffmpeg "$FFMPEG_SOURCE_DIR" "$FFMPEG_BRANCH"
 
 # 函数：下载并解压依赖库
 download_dependency() {

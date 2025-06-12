@@ -11,6 +11,11 @@ on:
         required: false
         default: 'all'
         type: string
+      ffmpeg_branch:
+        description: 'branch:[master,6.0,6.1,7.0,7.1]'
+        required: false
+        default: 'master'
+        type: string            
       ffmpeg_options:
         description: 'FFMPEG_OPTIONS:[rk_only,complete]'
         required: false
@@ -40,10 +45,10 @@ jobs:
       - name: Fetch latest release versions
         id: fetch-latest-release
         run: |
-          echo "Fetching ffmpeg version from https://raw.githubusercontent.com/nyanmisaka/ffmpeg-rockchip/refs/heads/master/RELEASE"
+          echo "Fetching ffmpeg version from https://raw.githubusercontent.com/nyanmisaka/ffmpeg-rockchip/refs/heads/${{ github.event.inputs.ffmpeg_branch }}/RELEASE"
           
           # 获取ffmpeg版本
-          FFMPEG_VERSION=$(curl -s https://raw.githubusercontent.com/nyanmisaka/ffmpeg-rockchip/refs/heads/master/RELEASE)
+          FFMPEG_VERSION=$(curl -s https://raw.githubusercontent.com/nyanmisaka/ffmpeg-rockchip/refs/heads/${{ github.event.inputs.ffmpeg_branch }}/RELEASE)
           
           if [ $? -ne 0 ] || [ -z "$FFMPEG_VERSION" ]; then
             echo "::error::Failed to fetch ffmpeg version"
@@ -53,35 +58,26 @@ jobs:
           # 清理版本号（去掉可能的空格和换行符）
           FFMPEG_VERSION=$(echo "$FFMPEG_VERSION" | tr -d '\n\r\t ' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
           
-          echo "Fetching rkmpp version from https://github.com/ChungTak/rkmpp-cross-builder/releases/latest"
+          # 获取ffmpeg-rockchip最新commit的SHA前7位
+          echo "Fetching latest commit hash from https://api.github.com/repos/nyanmisaka/ffmpeg-rockchip/commits/${{ github.event.inputs.ffmpeg_branch }}"
+          FFMPEG_COMMIT_HASH=$(curl -s https://api.github.com/repos/nyanmisaka/ffmpeg-rockchip/commits/${{ github.event.inputs.ffmpeg_branch }} | jq -r '.sha' | cut -c1-7)
           
-          # 获取rkmpp最新release信息
-          RKMPP_RELEASE=$(curl -s https://api.github.com/repos/ChungTak/rkmpp-cross-builder/releases/latest)
-          
-          if [ $? -ne 0 ]; then
-            echo "::error::Failed to fetch rkmpp latest release information"
+          if [ $? -ne 0 ] || [ -z "$FFMPEG_COMMIT_HASH" ] || [ "$FFMPEG_COMMIT_HASH" = "null" ]; then
+            echo "::error::Failed to fetch ffmpeg commit hash"
             exit 1
           fi
           
-          # 提取rkmpp版本标签
-          RKMPP_VERSION=$(echo "$RKMPP_RELEASE" | jq -r '.tag_name')
-          if [ "$RKMPP_VERSION" = "null" ] || [ -z "$RKMPP_VERSION" ]; then
-            echo "::warning::Could not extract rkmpp version tag, using default"
-            RKMPP_VERSION="v1.0.0"
-          fi
+          echo "FFmpeg commit hash: $FFMPEG_COMMIT_HASH"
           
-          # 构建版本标签: ffmpeg_version + ffmpeg_options + rkmpp_version
+          # 构建版本标签: ffmpeg_version + ffmpeg_options + FFMPEG_commit_hash
           FFMPEG_OPTIONS="${{ github.event.inputs.ffmpeg_options }}"
-          VERSION_TAG="${FFMPEG_VERSION}-${FFMPEG_OPTIONS}-${RKMPP_VERSION}"
+          VERSION_TAG="${FFMPEG_VERSION}-${FFMPEG_OPTIONS}-${FFMPEG_COMMIT_HASH}"
           
           # 构建release名称
           RELEASE_NAME="FFmpeg Rockchip ${VERSION_TAG}"
           
           # 提取FFmpeg Rockchip release notes
-          RELEASE_NOTES=$(echo "$RKMPP_RELEASE" | jq -r '.body')
-          if [ "$RELEASE_NOTES" = "null" ] || [ -z "$RELEASE_NOTES" ]; then
-            RELEASE_NOTES="FFmpeg Rockchip build with MPP support"
-          fi
+          RELEASE_NOTES="FFmpeg Rockchip build with MPP support"
           
           # 使用当前日期
           BUILD_DATE=$(date +'%Y-%m-%d')
@@ -89,7 +85,6 @@ jobs:
           echo "Version information:"
           echo "- FFmpeg Version: $FFMPEG_VERSION"
           echo "- FFmpeg Options: $FFMPEG_OPTIONS"
-          echo "- RKMPP Version: $RKMPP_VERSION"
           echo "- Combined Version Tag: $VERSION_TAG"
           echo "- Release Name: $RELEASE_NAME"
           echo "- Build Date: $BUILD_DATE"
@@ -361,7 +356,7 @@ jobs:
             echo "Size optimization disabled"
           fi
 
-          ./build_with_zig.sh --target=${{ matrix.target }} --ffmpeg-options=${{ github.event.inputs.ffmpeg_options }} $OPTIMIZE_FLAG
+          ./build_with_zig.sh --target=${{ matrix.target }} --ffmpeg-branch=${{ github.event.inputs.ffmpeg_branch }} --ffmpeg-options=${{ github.event.inputs.ffmpeg_options }} $OPTIMIZE_FLAG
           
           # Verify build output
           echo "Checking build results..."
@@ -394,7 +389,7 @@ jobs:
           Commit: ${{ steps.commit-info.outputs.commit_hash }}
           Commit Date: ${{ steps.commit-info.outputs.commit_date }}
           Source: https://github.com/nyanmisaka/ffmpeg-rockchip.git
-          Branch: master
+          Branch: ${{ github.event.inputs.ffmpeg_branch }}
           
           Build Environment:
           - OS: ${{ runner.os }}
