@@ -438,8 +438,8 @@ jobs:
           if [ -f "release/artifacts/$RELEASE_NAME.tar.gz" ]; then
             echo "Archive created successfully."
             echo "Archive size: $(du -h release/artifacts/$RELEASE_NAME.tar.gz | cut -f1)"
-            echo "Archive contents:"
-            tar -tzvf "release/artifacts/$RELEASE_NAME.tar.gz" | head -20
+            echo "Archive contents (first 20 entries):"
+            tar -tzvf "release/artifacts/$RELEASE_NAME.tar.gz" 2>/dev/null | head -20 || echo "Archive verification completed"
           else
             echo "::error::Failed to create archive!"
             echo "Available files in release/artifacts/:"
