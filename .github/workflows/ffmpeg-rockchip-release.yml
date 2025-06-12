@@ -171,38 +171,6 @@ jobs:
             matrix="${matrix}]"
           fi
           echo "matrix=$matrix" >> $GITHUB_OUTPUT
-                  ;;
-                *-macos*)
-                  os="macos-13"
-                  group="macos"
-                  ;;
-                *-android*)
-                  os="ubuntu-22.04"
-                  group="android"
-                  ;;
-                *-harmonyos*)
-                  os="ubuntu-22.04"
-                  group="harmonyos"
-                  ;;
-                riscv64-*)
-                  os="ubuntu-22.04"
-                  group="riscv"
-                  ;;
-                loongarch64-*)
-                  os="ubuntu-22.04"
-                  group="loongarch"
-                  ;;
-                *)
-                  os="ubuntu-22.04"
-                  group="linux"
-                  ;;
-              esac
-              
-              matrix="${matrix}{\"group\": \"$group\", \"target\": \"$target\", \"os\": \"$os\"}"
-            done
-            matrix="${matrix}]"
-          fi
-          echo "matrix=$matrix" >> $GITHUB_OUTPUT
 
   build:
     runs-on: ${{ matrix.os }}
@@ -355,35 +323,14 @@ jobs:
           retention-days: 1
 
       # Build Step
-      - name: Build Rockchip MPP for ${{ matrix.target }}
+      - name: Build Rockchip FFmpeg for ${{ matrix.target }}
         run: |
-          echo "=== Build Environment Check ==="
-          echo "Current directory: $(pwd)"
-          echo "Available directories:"
-          ls -la
-          
-          if [ ! -d "ffmpeg-rockchip" ]; then
-            echo "::error::ffmpeg-rockchip directory not found!"
-            echo "This suggests the repository structure is different than expected"
-            exit 1
-          fi
-          
           cd ffmpeg-rockchip
           export OUTPUT_DIR="ffmpeg_install/Release/${{ matrix.target }}"
           
-          echo "Building Rockchip MPP for target: ${{ matrix.target }}"
+          echo "Building Rockchip FFmpeg for target: ${{ matrix.target }}"
           echo "Build type: ${{ env.BUILD_TYPE }}"
           echo "Current directory: $(pwd)"
-          echo "Contents of ffmpeg-rockchip directory:"
-          ls -la
-          
-          # Check if build script exists
-          if [ ! -f "build_with_zig.sh" ]; then
-            echo "::error::build_with_zig.sh not found in ffmpeg-rockchip directory!"
-            echo "Available files:"
-            find . -name "*.sh" -type f
-            exit 1
-          fi
           
           # Make build script executable
           chmod +x build_with_zig.sh
@@ -409,39 +356,14 @@ jobs:
             echo "Size optimization disabled"
           fi
 
-          # Set FFmpeg branch parameter if provided
-          FFMPEG_BRANCH_FLAG=""
-          if [ -n "${{ github.event.inputs.ffmpeg_branch }}" ]; then
-            FFMPEG_BRANCH_FLAG="--ffmpeg-branch=${{ github.event.inputs.ffmpeg_branch }}"
-            echo "Using FFmpeg branch: ${{ github.event.inputs.ffmpeg_branch }}"
-          fi
-
-          # Execute build with error handling
-          set -e  # Exit on any error
-          echo "Executing: ./build_with_zig.sh --target=${{ matrix.target }} $FFMPEG_BRANCH_FLAG --ffmpeg-options=${{ github.event.inputs.ffmpeg_options }} $OPTIMIZE_FLAG"
-          
-          ./build_with_zig.sh --target=${{ matrix.target }} $FFMPEG_BRANCH_FLAG --ffmpeg-options=${{ github.event.inputs.ffmpeg_options }} $OPTIMIZE_FLAG || {
-            echo "::error::Build script failed with exit code $?"
-            echo "=== Build Script Error Debug Info ==="
-            echo "Available files in current directory:"
-            ls -la 2>/dev/null || echo "Cannot list files"
-            echo "Checking for any log files:"
-            find . -name "*.log" -type f 2>/dev/null | head -10 || echo "No log files found"
-            echo "Last 50 lines of any error output:"
-            tail -50 /tmp/build_*.log 2>/dev/null || echo "No build log found in /tmp"
-            exit 1
-          }
+          ./build_with_zig.sh --target=${{ matrix.target }} --ffmpeg-branch=${{ github.event.inputs.ffmpeg_branch }} --ffmpeg-options=${{ github.event.inputs.ffmpeg_options }} $OPTIMIZE_FLAG
           
           # Verify build output
           echo "Checking build results..."
           if [ ! -d "$OUTPUT_DIR" ]; then
             echo "::error::Build failed - output directory $OUTPUT_DIR not found!"
             echo "Available directories in ffmpeg_install/Release/:"
-            ls -la ffmpeg_install/Release/ 2>/dev/null || echo "ffmpeg_install/Release/ not found"
-            echo "Available directories in ffmpeg_install/:"
-            ls -la ffmpeg_install/ 2>/dev/null || echo "ffmpeg_install/ not found"
-            echo "Full directory tree from current location:"
-            find . -type d 2>/dev/null | head -20 || echo "Cannot list directories"
+            ls -la ffmpeg_install/Release/ || echo "ffmpeg_install/Release/ not found"
             exit 1
           fi
           
@@ -458,7 +380,7 @@ jobs:
           
           # Add metadata
           cat > "release/artifacts/$RELEASE_NAME/BUILD_INFO.txt" << EOF
-          Rockchip MPP Build Information
+          Rockchip FFmpeg Build Information
           =============================
           Version: ${{ needs.prepare.outputs.version_tag }}
           Target: ${{ matrix.target }}
@@ -493,12 +415,8 @@ jobs:
           if [ -f "release/artifacts/$RELEASE_NAME.tar.gz" ]; then
             echo "Archive created successfully."
             echo "Archive size: $(du -h release/artifacts/$RELEASE_NAME.tar.gz | cut -f1)"
-            echo "Archive contents (first 20 entries):"
-            tar -tzvf "release/artifacts/$RELEASE_NAME.tar.gz" 2>/dev/null | head -20 || echo "Archive verification completed"
           else
             echo "::error::Failed to create archive!"
-            echo "Available files in release/artifacts/:"
-            ls -la release/artifacts/ 2>/dev/null || echo "release/artifacts/ directory not found"
             exit 1
           fi
         shell: bash
@@ -507,47 +425,16 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: release-artifact-${{ matrix.target }}
-          path: release/artifacts/ffmpeg-rockchip-${{ needs.prepare.outputs.version_tag }}-${{ matrix.target }}.tar.gz
+          path: ffmpeg-rockchip/release/artifacts/ffmpeg-rockchip-${{ needs.prepare.outputs.version_tag }}-${{ matrix.target }}.tar.gz
           overwrite: true
           include-hidden-files: false
-          retention-days: 7
-        if: success() && hashFiles('release/artifacts/ffmpeg-rockchip-${{ needs.prepare.outputs.version_tag }}-${{ matrix.target }}.tar.gz') != ''
-
-      - name: Check build artifacts status
-        if: always()
-        run: |
-          RELEASE_NAME="ffmpeg-rockchip-${{ needs.prepare.outputs.version_tag }}-${{ matrix.target }}"
-          ARCHIVE_PATH="release/artifacts/$RELEASE_NAME.tar.gz"
-          
-          echo "=== Build Artifacts Check ==="
-          echo "Expected archive: $ARCHIVE_PATH"
-          
-          if [ -f "$ARCHIVE_PATH" ]; then
-            echo "✅ Archive found and will be uploaded"
-            echo "Archive size: $(du -h "$ARCHIVE_PATH" | cut -f1)"
-          else
-            echo "❌ Archive not found!"
-            echo "Available files in release/artifacts/:"
-            if [ -d "release/artifacts" ]; then
-              ls -la release/artifacts/ || echo "Directory exists but is empty"
-            else
-              echo "release/artifacts/ directory does not exist"
-            fi
-            
-            echo "Available files in current directory:"
-            ls -la . || echo "Cannot list current directory"
-            
-            echo "Checking for any .tar.gz files:"
-            find . -name "*.tar.gz" -type f 2>/dev/null || echo "No .tar.gz files found"
-          fi
+          retention-days: 1
 
   release:
     runs-on: ubuntu-22.04
     needs: [prepare, build]
     permissions:
       contents: write
-    # Only run if at least one build job succeeded
-    if: always() && needs.build.result != 'cancelled' && needs.build.result != 'skipped'
     steps:
       - name: Checkout Repository (for release context)
         uses: actions/checkout@v4
@@ -560,7 +447,6 @@ jobs:
         with:
           name: build-environment-x86_64-linux-gnu
           path: ./
-        continue-on-error: true
 
       - name: Load environment variables
         run: |
@@ -569,13 +455,8 @@ jobs:
             cat build_env.txt >> $GITHUB_ENV
             cat build_env.txt # Debugging output
           else
-            echo "::warning::build_env.txt not found, using fallback values"
-            # Use fallback values from prepare job
-            echo "VERSION_TAG=${{ needs.prepare.outputs.version_tag }}" >> $GITHUB_ENV
-            echo "BUILD_DATE=${{ needs.prepare.outputs.build_date }}" >> $GITHUB_ENV
-            echo "BUILD_TYPE=Release" >> $GITHUB_ENV
-            echo "COMMIT_HASH=unknown" >> $GITHUB_ENV
-            echo "COMMIT_DATE=$(date +'%Y-%m-%d')" >> $GITHUB_ENV
+            echo "::error::build_env.txt not found!"
+            exit 1
           fi
         shell: bash
 
@@ -589,28 +470,9 @@ jobs:
       - name: List downloaded artifacts
         run: |
           echo "Downloaded artifacts:"
-          if [ -d "release-artifacts" ]; then
-            ls -la release-artifacts/
-            echo "Total size:"
-            du -sh release-artifacts/
-            
-            # Check if any .tar.gz files were downloaded
-            if ls release-artifacts/*.tar.gz 1> /dev/null 2>&1; then
-              echo "Found .tar.gz files:"
-              ls -la release-artifacts/*.tar.gz
-            else
-              echo "::warning::No .tar.gz files found in artifacts"
-              echo "Contents of release-artifacts directory:"
-              find release-artifacts -type f -exec ls -la {} \;
-            fi
-          else
-            echo "::error::release-artifacts directory not created - no artifacts were downloaded"
-            echo "This usually means the build jobs failed or no artifacts were uploaded"
-            
-            # List all available artifacts to help debug
-            echo "Checking what artifacts are available in this workflow run..."
-            exit 1
-          fi
+          ls -la release-artifacts/
+          echo "Total size:"
+          du -sh release-artifacts/
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
@@ -625,20 +487,6 @@ jobs:
           make_latest: true
           files: |
             release-artifacts/*.tar.gz
-        if: success() && hashFiles('release-artifacts/*.tar.gz') != ''
-
-      - name: Release creation status
-        if: always()
-        run: |
-          if [ -d "release-artifacts" ] && ls release-artifacts/*.tar.gz 1> /dev/null 2>&1; then
-            echo "✅ Release created successfully with artifacts"
-            echo "Released artifacts:"
-            ls -la release-artifacts/*.tar.gz
-          else
-            echo "❌ Release creation skipped - no artifacts found"
-            echo "This usually indicates that the build jobs failed"
-            echo "Check the build job logs for more details"
-          fi
 
       - name: Cleanup artifacts
         run: |
