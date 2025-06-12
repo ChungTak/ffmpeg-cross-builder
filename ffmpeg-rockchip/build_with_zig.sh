@@ -87,6 +87,19 @@ BUILD_TYPE="Release"
 INSTALL_DIR="$PROJECT_ROOT_DIR/ffmpeg_install/Release/${TARGET}"
 BUILD_DIR="$PROJECT_ROOT_DIR/ffmpeg_build/${TARGET}"
 
+# 处理清理动作
+if [ "$ACTION" = "clean" ]; then
+    echo -e "${YELLOW}清理构建目录和缓存...${NC}"
+    rm -rf "$PROJECT_ROOT_DIR/ffmpeg_build"
+    echo -e "${GREEN}构建目录已清理!${NC}"
+    exit 0
+elif [ "$ACTION" = "clean-dist" ]; then
+    echo -e "${YELLOW}清理构建目录和安装目录...${NC}"
+    rm -rf "$PROJECT_ROOT_DIR/ffmpeg_build"
+    rm -rf "$PROJECT_ROOT_DIR/ffmpeg_install"
+    echo -e "${GREEN}构建目录和安装目录已清理!${NC}"
+    exit 0
+fi
 
 # 设置 CMake 交叉编译变量 - 基于原始目标而不是 Zig 目标
 case "$TARGET" in
@@ -300,20 +313,6 @@ export CFLAGS="-I${RKMPP_PATH}/include -I${RKRGA_PATH}/include -DHAVE_SYSCTL=0 $
 export LDFLAGS="-L${RKMPP_PATH}/lib -L${RKRGA_PATH}/lib"
 
 
-# 处理清理动作
-if [ "$ACTION" = "clean" ]; then
-    echo -e "${YELLOW}清理构建目录和缓存...${NC}"
-    rm -rf "$PROJECT_ROOT_DIR/ffmpeg_build"
-    echo -e "${GREEN}构建目录已清理!${NC}"
-    exit 0
-elif [ "$ACTION" = "clean-dist" ]; then
-    echo -e "${YELLOW}清理构建目录和安装目录...${NC}"
-    rm -rf "$PROJECT_ROOT_DIR/ffmpeg_build"
-    rm -rf "$PROJECT_ROOT_DIR/ffmpeg_install"
-    echo -e "${GREEN}构建目录和安装目录已清理!${NC}"
-    exit 0
-fi
-
 # 检查Zig是否安装
 if ! command -v zig &> /dev/null; then
     echo -e "${RED}错误: 未找到Zig。请安装Zig: https://ziglang.org/download/${NC}"
@@ -379,14 +378,17 @@ if [[ "$TARGET" == *"-linux-android"* ]]; then
     esac
     
     # 设置编译器标志
-    export CFLAGS="$ZIG_OPTIMIZE_FLAGS $CFLAGS"
-    export CXXFLAGS="$ZIG_OPTIMIZE_FLAGS $CXXFLAGS"
+    export CFLAGS="$CFLAGS $ZIG_OPTIMIZE_FLAGS"
+    export CXXFLAGS="$CXXFLAGS $ZIG_OPTIMIZE_FLAGS"
     
     # toolchain 参数必须最前，其它参数和源码目录最后
     export CC="${TOOLCHAIN}/bin/${ANDROID_TARGET}${API_LEVEL}-clang"
     export CXX="${TOOLCHAIN}/bin/${ANDROID_TARGET}${API_LEVEL}-clang++"
     export AR="${TOOLCHAIN}/bin/llvm-ar"
-    export RANLIB="${TOOLCHAIN}/bin/llvm-ranlib"    
+    export RANLIB="${TOOLCHAIN}/bin/llvm-ranlib"
+    
+    # 添加Android系统库到LDFLAGS
+    export LDFLAGS="$LDFLAGS -llog -lm -lc++_shared"    
 
 elif [[ "$TARGET" == *"-linux-harmonyos"* ]]; then
     # 检查 HarmonyOS SDK
@@ -448,8 +450,8 @@ elif [[ "$TARGET" == *"-linux-harmonyos"* ]]; then
     fi
   
     # 设置编译器标志
-    export CFLAGS="$ZIG_OPTIMIZE_FLAGS $CFLAGS"
-    export CXXFLAGS="$ZIG_OPTIMIZE_FLAGS $CXXFLAGS"
+    export CFLAGS="$CFLAGS $ZIG_OPTIMIZE_FLAGS"
+    export CXXFLAGS="$CXXFLAGS $ZIG_OPTIMIZE_FLAGS"
     
     # toolchain 参数必须最前，其它参数和源码目录最后
     export CC="${TOOLCHAIN}/$OHOS_ARCH-unknown-linux-ohos-clang"
