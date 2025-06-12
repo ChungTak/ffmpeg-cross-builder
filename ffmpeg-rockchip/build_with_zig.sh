@@ -501,7 +501,6 @@ RK_ONLY_OPTIONS="--disable-everything \
     --disable-x86asm \
     --disable-programs \
     --disable-doc \
-    --disable-avdevice \
     --disable-swscale \
     --disable-swresample \
     --disable-postproc \
@@ -524,10 +523,14 @@ RK_ONLY_OPTIONS="--disable-everything \
     --enable-demuxer=matroska \
     --enable-demuxer=avi \
     \
+    --enable-encoder=wrapped_avframe \
+    --enable-encoder=rawvideo \
     --enable-encoder=h264_rkmpp \
     --enable-encoder=hevc_rkmpp \
     --enable-encoder=mjpeg_rkmpp \
     \
+    --enable-decoder=wrapped_avframe \
+    --enable-decoder=rawvideo \
     --enable-decoder=h264_rkmpp \
     --enable-decoder=av1_rkmpp \
     --enable-decoder=mjpeg_rkmpp \
@@ -550,7 +553,14 @@ RK_ONLY_OPTIONS="--disable-everything \
     --enable-parser=mpeg4video \
     \
     --enable-avfilter \
+    --enable-indev=lavfi \
+    --enable-filter=testsrc \
+    --enable-filter=testsrc2 \
+    --enable-filter=format \
+    --enable-filter=hwupload \
+    --enable-filter=hwdownload \
     --enable-filter=scale_rkrga \
+    --enable-filter=overlay_rkrga \
     --enable-filter=vpp_rkrga"
 # 完整的配置选项
 COMPLETE_OPTIONS="--enable-gpl --enable-version3 --enable-libdrm --enable-rkmpp --enable-rkrga"
