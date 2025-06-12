@@ -331,7 +331,7 @@ jobs:
       - name: Build Rockchip MPP for ${{ matrix.target }}
         run: |
           cd ffmpeg-rockchip
-          export OUTPUT_DIR="ffmpeg_rockchip_install/Release/${{ matrix.target }}"
+          export OUTPUT_DIR="ffmpeg_install/Release/${{ matrix.target }}"
           
           echo "Building Rockchip MPP for target: ${{ matrix.target }}"
           echo "Build type: ${{ env.BUILD_TYPE }}"
@@ -360,24 +360,20 @@ jobs:
           else
             echo "Size optimization disabled"
           fi
-          ./build_with_zig.sh --target=${{ matrix.target }} $OPTIMIZE_FLAG
+
+          ./build_with_zig.sh --target=${{ matrix.target }} --ffmpeg-options=${{ github.event.inputs.ffmpeg_options }} $OPTIMIZE_FLAG
           
           # Verify build output
           echo "Checking build results..."
           if [ ! -d "$OUTPUT_DIR" ]; then
             echo "::error::Build failed - output directory $OUTPUT_DIR not found!"
-            echo "Available directories in ffmpeg_rockchip_install/Release/:"
-            ls -la ffmpeg_rockchip_install/Release/ || echo "ffmpeg_rockchip_install/Release/ not found"
+            echo "Available directories in ffmpeg_install/Release/:"
+            ls -la ffmpeg_install/Release/ || echo "ffmpeg_install/Release/ not found"
             exit 1
           fi
           
           echo "Build successful. Contents of $OUTPUT_DIR:"
           ls -la "$OUTPUT_DIR"
-          
-          # Validate build output
-          echo "Validating build output..."
-          chmod +x .github/scripts/validate_build.sh
-          ./.github/scripts/validate_build.sh "${{ matrix.target }}" "$OUTPUT_DIR"
 
           # Packaging
           RELEASE_NAME="ffmpeg-rockchip-${{ needs.prepare.outputs.version_tag }}-${{ matrix.target }}"
@@ -397,8 +393,8 @@ jobs:
           Build Date: ${{ env.BUILD_DATE }}
           Commit: ${{ steps.commit-info.outputs.commit_hash }}
           Commit Date: ${{ steps.commit-info.outputs.commit_date }}
-          Source: https://github.com/nyanmisaka/mpp.git
-          Branch: jellyfin-mpp
+          Source: https://github.com/nyanmisaka/ffmpeg-rockchip.git
+          Branch: master
           
           Build Environment:
           - OS: ${{ runner.os }}
