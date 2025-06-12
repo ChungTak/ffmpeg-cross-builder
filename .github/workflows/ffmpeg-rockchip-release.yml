@@ -325,12 +325,33 @@ jobs:
       # Build Step
       - name: Build Rockchip MPP for ${{ matrix.target }}
         run: |
+          echo "=== Build Environment Check ==="
+          echo "Current directory: $(pwd)"
+          echo "Available directories:"
+          ls -la
+          
+          if [ ! -d "ffmpeg-rockchip" ]; then
+            echo "::error::ffmpeg-rockchip directory not found!"
+            echo "This suggests the repository structure is different than expected"
+            exit 1
+          fi
+          
           cd ffmpeg-rockchip
           export OUTPUT_DIR="ffmpeg_install/Release/${{ matrix.target }}"
           
           echo "Building Rockchip MPP for target: ${{ matrix.target }}"
           echo "Build type: ${{ env.BUILD_TYPE }}"
           echo "Current directory: $(pwd)"
+          echo "Contents of ffmpeg-rockchip directory:"
+          ls -la
+          
+          # Check if build script exists
+          if [ ! -f "build_with_zig.sh" ]; then
+            echo "::error::build_with_zig.sh not found in ffmpeg-rockchip directory!"
+            echo "Available files:"
+            find . -name "*.sh" -type f
+            exit 1
+          fi
           
           # Make build script executable
           chmod +x build_with_zig.sh
@@ -363,7 +384,9 @@ jobs:
           if [ ! -d "$OUTPUT_DIR" ]; then
             echo "::error::Build failed - output directory $OUTPUT_DIR not found!"
             echo "Available directories in ffmpeg_install/Release/:"
-            ls -la ffmpeg_install/Release/ || echo "ffmpeg_install/Release/ not found"
+            ls -la ffmpeg_install/Release/ 2>/dev/null || echo "ffmpeg_install/Release/ not found"
+            echo "Available directories in ffmpeg_install/:"
+            ls -la ffmpeg_install/ 2>/dev/null || echo "ffmpeg_install/ not found"
             exit 1
           fi
           
@@ -415,8 +438,12 @@ jobs:
           if [ -f "release/artifacts/$RELEASE_NAME.tar.gz" ]; then
             echo "Archive created successfully."
             echo "Archive size: $(du -h release/artifacts/$RELEASE_NAME.tar.gz | cut -f1)"
+            echo "Archive contents:"
+            tar -tzvf "release/artifacts/$RELEASE_NAME.tar.gz" | head -20
           else
             echo "::error::Failed to create archive!"
+            echo "Available files in release/artifacts/:"
+            ls -la release/artifacts/ 2>/dev/null || echo "release/artifacts/ directory not found"
             exit 1
           fi
         shell: bash
@@ -429,6 +456,35 @@ jobs:
           overwrite: true
           include-hidden-files: false
           retention-days: 7
+        if: success() && hashFiles('release/artifacts/ffmpeg-rockchip-${{ needs.prepare.outputs.version_tag }}-${{ matrix.target }}.tar.gz') != ''
+
+      - name: Check build artifacts status
+        if: always()
+        run: |
+          RELEASE_NAME="ffmpeg-rockchip-${{ needs.prepare.outputs.version_tag }}-${{ matrix.target }}"
+          ARCHIVE_PATH="release/artifacts/$RELEASE_NAME.tar.gz"
+          
+          echo "=== Build Artifacts Check ==="
+          echo "Expected archive: $ARCHIVE_PATH"
+          
+          if [ -f "$ARCHIVE_PATH" ]; then
+            echo "✅ Archive found and will be uploaded"
+            echo "Archive size: $(du -h "$ARCHIVE_PATH" | cut -f1)"
+          else
+            echo "❌ Archive not found!"
+            echo "Available files in release/artifacts/:"
+            if [ -d "release/artifacts" ]; then
+              ls -la release/artifacts/ || echo "Directory exists but is empty"
+            else
+              echo "release/artifacts/ directory does not exist"
+            fi
+            
+            echo "Available files in current directory:"
+            ls -la . || echo "Cannot list current directory"
+            
+            echo "Checking for any .tar.gz files:"
+            find . -name "*.tar.gz" -type f 2>/dev/null || echo "No .tar.gz files found"
+          fi
 
   release:
     runs-on: ubuntu-22.04
@@ -470,9 +526,28 @@ jobs:
       - name: List downloaded artifacts
         run: |
           echo "Downloaded artifacts:"
-          ls -la release-artifacts/
-          echo "Total size:"
-          du -sh release-artifacts/
+          if [ -d "release-artifacts" ]; then
+            ls -la release-artifacts/
+            echo "Total size:"
+            du -sh release-artifacts/
+            
+            # Check if any .tar.gz files were downloaded
+            if ls release-artifacts/*.tar.gz 1> /dev/null 2>&1; then
+              echo "Found .tar.gz files:"
+              ls -la release-artifacts/*.tar.gz
+            else
+              echo "::warning::No .tar.gz files found in artifacts"
+              echo "Contents of release-artifacts directory:"
+              find release-artifacts -type f -exec ls -la {} \;
+            fi
+          else
+            echo "::error::release-artifacts directory not created - no artifacts were downloaded"
+            echo "This usually means the build jobs failed or no artifacts were uploaded"
+            
+            # List all available artifacts to help debug
+            echo "Checking what artifacts are available in this workflow run..."
+            exit 1
+          fi
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
@@ -487,6 +562,20 @@ jobs:
           make_latest: true
           files: |
             release-artifacts/*.tar.gz
+        if: success() && hashFiles('release-artifacts/*.tar.gz') != ''
+
+      - name: Release creation status
+        if: always()
+        run: |
+          if [ -d "release-artifacts" ] && ls release-artifacts/*.tar.gz 1> /dev/null 2>&1; then
+            echo "✅ Release created successfully with artifacts"
+            echo "Released artifacts:"
+            ls -la release-artifacts/*.tar.gz
+          else
+            echo "❌ Release creation skipped - no artifacts found"
+            echo "This usually indicates that the build jobs failed"
+            echo "Check the build job logs for more details"
+          fi
 
       - name: Cleanup artifacts
         run: |
