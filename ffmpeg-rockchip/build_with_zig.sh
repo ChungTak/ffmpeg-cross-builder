@@ -29,10 +29,10 @@ for arg in "$@"; do
       FFMPEG_OPTIONS="${arg#*=}"
       shift
       ;;
-    --ffmpeg-branch)
-      FFMPEG_BRANCH="master"
+    --ffmpeg-branch=*)
+      FFMPEG_BRANCH="${arg#*=}"
       shift
-      ;;      
+      ;;
     clean)
       ACTION="clean"
       shift
@@ -144,7 +144,7 @@ esac
 # 函数：下载并解压 ffmpeg 源码
 download_ffmpeg() {
     local source_dir="$1"
-    local branch="$2"
+    local branch="${2:-master}"
     local download_url="https://github.com/nyanmisaka/ffmpeg-rockchip.git"
     
     echo -e "${YELLOW}检查 ffmpeg 源码目录...${NC}"
@@ -166,8 +166,9 @@ download_ffmpeg() {
     # 创建临时下载目录
     
     echo -e "${BLUE}下载地址: $download_url${NC}"
+    echo -e "${BLUE}项目分支: $branch${NC}"
     echo -e "${BLUE}下载到: $source_dir${NC}"
-    
+
     # 下载文件
     git clone -b $branch --depth=1 $download_url $source_dir
     if [ $? -ne 0 ]; then
