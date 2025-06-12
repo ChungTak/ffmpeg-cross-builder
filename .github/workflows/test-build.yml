@@ -1,0 +1,52 @@
+name: Test Build Single Target
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'Target to build'
+        required: false
+        default: 'x86_64-linux-gnu'
+        type: string
+
+jobs:
+  test-build:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          ref: master
+          fetch-depth: 0
+
+      - name: Setup Zig
+        uses: korandoru/setup-zig@v1
+        with:
+          zig-version: 0.14.0
+
+      - name: Test Build Script
+        run: |
+          echo "=== Environment Check ==="
+          echo "Current directory: $(pwd)"
+          ls -la
+          
+          echo "=== FFmpeg-rockchip directory check ==="
+          if [ -d "ffmpeg-rockchip" ]; then
+            cd ffmpeg-rockchip
+            echo "Contents:"
+            ls -la
+            
+            echo "=== Testing build script help ==="
+            chmod +x build_with_zig.sh
+            ./build_with_zig.sh --help
+            
+            echo "=== Testing minimal build (dry run) ==="
+            echo "This would run: ./build_with_zig.sh --target=${{ github.event.inputs.target }} --ffmpeg-branch=master --ffmpeg-options=rk_only"
+            
+            # For now, just test that the script can parse arguments
+            echo "Build script exists and is executable"
+          else
+            echo "::error::ffmpeg-rockchip directory not found!"
+            exit 1
+          fi
+        shell: bash

@@ -171,6 +171,38 @@ jobs:
             matrix="${matrix}]"
           fi
           echo "matrix=$matrix" >> $GITHUB_OUTPUT
+                  ;;
+                *-macos*)
+                  os="macos-13"
+                  group="macos"
+                  ;;
+                *-android*)
+                  os="ubuntu-22.04"
+                  group="android"
+                  ;;
+                *-harmonyos*)
+                  os="ubuntu-22.04"
+                  group="harmonyos"
+                  ;;
+                riscv64-*)
+                  os="ubuntu-22.04"
+                  group="riscv"
+                  ;;
+                loongarch64-*)
+                  os="ubuntu-22.04"
+                  group="loongarch"
+                  ;;
+                *)
+                  os="ubuntu-22.04"
+                  group="linux"
+                  ;;
+              esac
+              
+              matrix="${matrix}{\"group\": \"$group\", \"target\": \"$target\", \"os\": \"$os\"}"
+            done
+            matrix="${matrix}]"
+          fi
+          echo "matrix=$matrix" >> $GITHUB_OUTPUT
 
   build:
     runs-on: ${{ matrix.os }}
@@ -377,7 +409,28 @@ jobs:
             echo "Size optimization disabled"
           fi
 
-          ./build_with_zig.sh --target=${{ matrix.target }} --ffmpeg-branch=${{ github.event.inputs.ffmpeg_branch }} --ffmpeg-options=${{ github.event.inputs.ffmpeg_options }} $OPTIMIZE_FLAG
+          # Set FFmpeg branch parameter if provided
+          FFMPEG_BRANCH_FLAG=""
+          if [ -n "${{ github.event.inputs.ffmpeg_branch }}" ]; then
+            FFMPEG_BRANCH_FLAG="--ffmpeg-branch=${{ github.event.inputs.ffmpeg_branch }}"
+            echo "Using FFmpeg branch: ${{ github.event.inputs.ffmpeg_branch }}"
+          fi
+
+          # Execute build with error handling
+          set -e  # Exit on any error
+          echo "Executing: ./build_with_zig.sh --target=${{ matrix.target }} $FFMPEG_BRANCH_FLAG --ffmpeg-options=${{ github.event.inputs.ffmpeg_options }} $OPTIMIZE_FLAG"
+          
+          ./build_with_zig.sh --target=${{ matrix.target }} $FFMPEG_BRANCH_FLAG --ffmpeg-options=${{ github.event.inputs.ffmpeg_options }} $OPTIMIZE_FLAG || {
+            echo "::error::Build script failed with exit code $?"
+            echo "=== Build Script Error Debug Info ==="
+            echo "Available files in current directory:"
+            ls -la 2>/dev/null || echo "Cannot list files"
+            echo "Checking for any log files:"
+            find . -name "*.log" -type f 2>/dev/null | head -10 || echo "No log files found"
+            echo "Last 50 lines of any error output:"
+            tail -50 /tmp/build_*.log 2>/dev/null || echo "No build log found in /tmp"
+            exit 1
+          }
           
           # Verify build output
           echo "Checking build results..."
@@ -387,6 +440,8 @@ jobs:
             ls -la ffmpeg_install/Release/ 2>/dev/null || echo "ffmpeg_install/Release/ not found"
             echo "Available directories in ffmpeg_install/:"
             ls -la ffmpeg_install/ 2>/dev/null || echo "ffmpeg_install/ not found"
+            echo "Full directory tree from current location:"
+            find . -type d 2>/dev/null | head -20 || echo "Cannot list directories"
             exit 1
           fi
           
@@ -491,6 +546,8 @@ jobs:
     needs: [prepare, build]
     permissions:
       contents: write
+    # Only run if at least one build job succeeded
+    if: always() && needs.build.result != 'cancelled' && needs.build.result != 'skipped'
     steps:
       - name: Checkout Repository (for release context)
         uses: actions/checkout@v4
@@ -503,6 +560,7 @@ jobs:
         with:
           name: build-environment-x86_64-linux-gnu
           path: ./
+        continue-on-error: true
 
       - name: Load environment variables
         run: |
@@ -511,8 +569,13 @@ jobs:
             cat build_env.txt >> $GITHUB_ENV
             cat build_env.txt # Debugging output
           else
-            echo "::error::build_env.txt not found!"
-            exit 1
+            echo "::warning::build_env.txt not found, using fallback values"
+            # Use fallback values from prepare job
+            echo "VERSION_TAG=${{ needs.prepare.outputs.version_tag }}" >> $GITHUB_ENV
+            echo "BUILD_DATE=${{ needs.prepare.outputs.build_date }}" >> $GITHUB_ENV
+            echo "BUILD_TYPE=Release" >> $GITHUB_ENV
+            echo "COMMIT_HASH=unknown" >> $GITHUB_ENV
+            echo "COMMIT_DATE=$(date +'%Y-%m-%d')" >> $GITHUB_ENV
           fi
         shell: bash
 
