@@ -76,8 +76,35 @@ jobs:
           # 构建release名称
           RELEASE_NAME="FFmpeg Rockchip ${VERSION_TAG}"
           
-          # 提取FFmpeg Rockchip release notes
-          RELEASE_NOTES="FFmpeg Rockchip build with MPP support"
+          # 获取最近的提交信息
+          echo "Fetching recent commit messages from https://api.github.com/repos/nyanmisaka/ffmpeg-rockchip/commits"
+          RECENT_COMMITS=$(curl -s "https://api.github.com/repos/nyanmisaka/ffmpeg-rockchip/commits?sha=${{ github.event.inputs.ffmpeg_branch }}&per_page=5" | jq -r '.[] | "- \(.commit.message | split("\n")[0]) (\(.sha[0:7]))"')
+          
+          if [ $? -ne 0 ] || [ -z "$RECENT_COMMITS" ]; then
+            echo "::warning::Failed to fetch recent commits, using fallback"
+            RECENT_COMMITS="- Unable to fetch recent commits"
+          fi
+          
+          # 构建详细的 release notes
+          RELEASE_NOTES="## FFmpeg Rockchip ${VERSION_TAG}"
+          RELEASE_NOTES="${RELEASE_NOTES}"$'\n'$'\n'"This is an automated build of FFmpeg with Rockchip MPP hardware acceleration support."
+          RELEASE_NOTES="${RELEASE_NOTES}"$'\n'$'\n'"### Build Information"
+          RELEASE_NOTES="${RELEASE_NOTES}"$'\n'"- **FFmpeg Version**: ${FFMPEG_VERSION}"
+          RELEASE_NOTES="${RELEASE_NOTES}"$'\n'"- **Build Options**: ${FFMPEG_OPTIONS}"
+          RELEASE_NOTES="${RELEASE_NOTES}"$'\n'"- **Target Commit**: ${FFMPEG_COMMIT_HASH}"
+          RELEASE_NOTES="${RELEASE_NOTES}"$'\n'"- **Build Date**: $(date +'%Y-%m-%d %H:%M:%S UTC')"
+          RELEASE_NOTES="${RELEASE_NOTES}"$'\n'$'\n'"### Recent Commits"
+          RELEASE_NOTES="${RELEASE_NOTES}"$'\n'"${RECENT_COMMITS}"
+          RELEASE_NOTES="${RELEASE_NOTES}"$'\n'$'\n'"### Documentation & Support"
+          RELEASE_NOTES="${RELEASE_NOTES}"$'\n'"For more information about FFmpeg Rockchip, please visit:"
+          RELEASE_NOTES="${RELEASE_NOTES}"$'\n'"- 📖 **Wiki**: https://github.com/nyanmisaka/ffmpeg-rockchip/wiki"
+          RELEASE_NOTES="${RELEASE_NOTES}"$'\n'"- 🔧 **Source Repository**: https://github.com/nyanmisaka/ffmpeg-rockchip"
+          RELEASE_NOTES="${RELEASE_NOTES}"$'\n'"- 💬 **Issues & Support**: https://github.com/nyanmisaka/ffmpeg-rockchip/issues"
+          RELEASE_NOTES="${RELEASE_NOTES}"$'\n'$'\n'"### Features"
+          RELEASE_NOTES="${RELEASE_NOTES}"$'\n'"- Hardware-accelerated video encoding/decoding with Rockchip MPP"
+          RELEASE_NOTES="${RELEASE_NOTES}"$'\n'"- Support for multiple Rockchip SoC platforms"
+          RELEASE_NOTES="${RELEASE_NOTES}"$'\n'"- Optimized for ARM64 and ARM32 architectures"
+          RELEASE_NOTES="${RELEASE_NOTES}"$'\n'"- Cross-platform builds for various target systems"
           
           # 使用当前日期
           BUILD_DATE=$(date +'%Y-%m-%d')
