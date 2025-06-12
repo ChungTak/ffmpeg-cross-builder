@@ -337,6 +337,7 @@ else
 fi
 
 # 创建安装目录
+rm -rf "$INSTALL_DIR"
 mkdir -p "$INSTALL_DIR"
 
 # 创建FFMPEG构建目录（每次都清理，避免 CMake 缓存污染）
@@ -602,9 +603,25 @@ make install
 # 检查安装结果
 if [ $? -eq 0 ]; then
     echo -e "${GREEN}安装成功!${NC}"
-    # "修改 pkg-config 文件路径..."
-    #find "${INSTALL_DIR}/lib/pkgconfig" -name "*.pc" -exec sed -i "s|^prefix=.*|prefix=/usr|g" {} \;    # 如果启用了大小优化，进行额外的压缩处理
-    
+    # 复制build_deps依赖动态库到安装目录
+    echo -e "${YELLOW}复制 RKRGA 库到安装目录...${NC}"
+    if [ -d "$RKRGA_PATH/lib" ]; then
+        cp -rf "$RKRGA_PATH/lib/"* "$INSTALL_DIR/lib/" 2>/dev/null || true            
+    fi
+    if [ -d "$RKRGA_PATH/include" ]; then
+        cp -rf "$RKRGA_PATH/include/"* "$INSTALL_DIR/include/" 2>/dev/null || true
+    fi
+    echo -e "${GREEN}RKRGA 库已复制到: $INSTALL_DIR/lib/${NC}"
+
+    echo -e "${YELLOW}复制 RKMPP 库到安装目录...${NC}"
+    if [ -d "$RKMPP_PATH/lib" ]; then
+        cp -rf "$RKMPP_PATH/lib/"* "$INSTALL_DIR/lib/" 2>/dev/null || true            
+    fi
+    if [ -d "$RKMPP_PATH/include" ]; then
+        cp -rf "$RKMPP_PATH/include/"* "$INSTALL_DIR/include/" 2>/dev/null || true
+    fi    
+    echo -e "${GREEN}RKMPP 库已复制到: $INSTALL_DIR/lib/${NC}"
+
     if [ "$OPTIMIZE_SIZE" = true ]; then
         echo -e "${YELLOW}执行额外的库文件压缩...${NC}"
         
