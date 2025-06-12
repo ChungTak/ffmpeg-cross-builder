@@ -77,7 +77,7 @@ jobs:
           # 构建release名称
           RELEASE_NAME="FFmpeg Rockchip ${VERSION_TAG}"
           
-          # 提取rkmpp release notes
+          # 提取FFmpeg Rockchip release notes
           RELEASE_NOTES=$(echo "$RKMPP_RELEASE" | jq -r '.body')
           if [ "$RELEASE_NOTES" = "null" ] || [ -z "$RELEASE_NOTES" ]; then
             RELEASE_NOTES="FFmpeg Rockchip build with MPP support"
@@ -330,6 +330,7 @@ jobs:
       # Build Step
       - name: Build Rockchip MPP for ${{ matrix.target }}
         run: |
+          cd ffmpeg-rockchip
           export OUTPUT_DIR="ffmpeg_rockchip_install/Release/${{ matrix.target }}"
           
           echo "Building Rockchip MPP for target: ${{ matrix.target }}"
